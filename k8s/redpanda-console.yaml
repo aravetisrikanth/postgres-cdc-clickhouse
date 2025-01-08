@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda-console
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: redpanda-console
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redpanda-console
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redpanda-console
+  template:
+    metadata:
+      labels:
+        app: redpanda-console
+    spec:
+      containers:
+        - name: redpanda-console
+          image: docker.redpanda.com/redpandadata/console:v2.3.8
+          ports:
+            - containerPort: 8080
+          env:
+            - name: CONFIG_FILEPATH
+              value: "/tmp/config.yml"
+          volumeMounts:
+            - name: config
+              mountPath: /tmp/config.yml
+              subPath: config.yml
+      volumes:
+        - name: config
+          configMap:
+            name: redpanda-console-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redpanda-console-config
+data:
+  config.yml: |
+    kafka:
+      brokers: ["kafka-broker:29092"]
+      schemaRegistry:
+        enabled: true
+        urls: ["http://cp-schema-registry:8081"]
+    connect:
+      enabled: true
+      clusters:
+        - name: production
+          url: http://debezium:8083 

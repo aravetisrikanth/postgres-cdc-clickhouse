@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-keeper
+spec:
+  ports:
+    - port: 9181
+      targetPort: 9181
+      name: keeper
+  selector:
+    app: clickhouse-keeper
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickhouse-keeper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickhouse-keeper
+  template:
+    metadata:
+      labels:
+        app: clickhouse-keeper
+    spec:
+      containers:
+        - name: clickhouse-keeper
+          image: clickhouse/clickhouse-keeper:24.3-alpine
+          ports:
+            - containerPort: 9181
+          volumeMounts:
+            - name: keeper-config
+              mountPath: /etc/clickhouse-keeper/
+      volumes:
+        - name: keeper-config
+          configMap:
+            name: clickhouse-keeper-config
