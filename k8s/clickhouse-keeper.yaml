@@ -26,7 +26,7 @@ spec:
     spec:
       containers:
         - name: clickhouse-keeper
-          image: clickhouse/clickhouse-keeper:24.3-alpine
+          image: clickhouse/clickhouse-keeper:24.8-alpine
           ports:
             - containerPort: 9181
           volumeMounts:

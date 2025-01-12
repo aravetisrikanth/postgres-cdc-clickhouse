@@ -37,26 +37,33 @@ This project sets up a Change Data Capture (CDC) pipeline using Debezium, Kafka,
 ## Installation Steps
 
 1. **Deploy Core Services**
-Deploy Zookeeper
+```bash
+# Deploy Zookeeper
 kubectl apply -f k8s/zookeeper.yaml
 kubectl wait --for=condition=ready pod -l app=zookeeper --timeout=120s
-Deploy Kafka
+# Deploy Kafka
 kubectl apply -f k8s/kafka.yaml
 kubectl wait --for=condition=ready pod -l app=kafka-broker --timeout=120s
-Deploy Schema Registry
+# Deploy Schema Registry
 kubectl apply -f k8s/schema-registry.yaml
-Deploy Apicurio Registry
+# Deploy Apicurio Registry
 kubectl apply -f k8s/apicurio-registry.yaml
-Deploy PostgreSQL
+# Deploy PostgreSQL
 kubectl apply -f k8s/postgres.yaml
 kubectl wait --for=condition=ready pod -l app=postgres --timeout=120s
-Deploy Debezium
+# Deploy Debezium
 kubectl apply -f k8s/debezium.yaml
 kubectl wait --for=condition=ready pod -l app=debezium --timeout=120s
+
+```
 
 2. **Deploy ClickHouse Components**
 
 ```bash
+# Create ConfigMaps for ClickHouse (you'll need to create these config files first)
+kubectl create configmap clickhouse-config --from-file=config.xml
+kubectl create configmap clickhouse-users --from-file=users.xml
+
 # Deploy ClickHouse Keeper
 kubectl apply -f k8s/clickhouse-keeper.yaml
 kubectl wait --for=condition=ready pod -l app=clickhouse-keeper --timeout=120s
@@ -64,6 +71,16 @@ kubectl wait --for=condition=ready pod -l app=clickhouse-keeper --timeout=120s
 # Deploy ClickHouse
 kubectl apply -f k8s/clickhouse.yaml
 kubectl wait --for=condition=ready pod -l app=clickhouse --timeout=120s
+
+# Check if Keeper is running
+kubectl get pods -l app=clickhouse-keeper
+
+# Check Keeper logs
+kubectl logs -l app=clickhouse-keeper
+
+# Check if ClickHouse can connect to Keeper
+kubectl exec -it $(kubectl get pod -l app=clickhouse -o jsonpath='{.items[0].metadata.name}') -- clickhouse-client --query="SELECT * FROM system.zookeeper WHERE path = '/'"
+
 ```
 
 3. **Deploy Monitoring**
@@ -71,6 +88,16 @@ kubectl wait --for=condition=ready pod -l app=clickhouse --timeout=120s
 ```bash
 # Deploy Redpanda Console
 kubectl apply -f k8s/redpanda-console.yaml
+
+# Wait for the pod to be ready
+kubectl wait --for=condition=ready pod -l app=redpanda-console --timeout=120s
+
+# Check the status
+kubectl get pods -l app=redpanda-console
+
+# Port forward to access the UI locally
+kubectl port-forward svc/redpanda-console 8080:8080
+
 ```
 
 4. **Configure CDC**
@@ -95,6 +122,9 @@ kubectl get pods
 # Connect to PostgreSQL
 kubectl exec -it $(kubectl get pod -l app=postgres -o jsonpath='{.items[0].metadata.name}') -- psql -U postgres -d shop_db
 
+# or you can do port forward to the postgres pod so you can connect to it locally using pgadmin, pgcli, psql etc.
+kubectl port-forward svc/postgres 5432:5432
+
 # Create a test table
 CREATE TABLE users (
     user_id SERIAL PRIMARY KEY,
@@ -106,16 +136,16 @@ CREATE TABLE users (
 
 # Insert test data
 INSERT INTO users (username, account_type) VALUES
-('user1', 'John'),
-('user2', 'Jack'),
-('user3', 'James');
+('user1', 'Employee'),
+('user2', 'Contractor'),
+('user3', 'Vendor');
 
 INSERT INTO users (username, account_type) VALUES
-('user4', 'Json')
+('user4', 'Guest')
 
 INSERT INTO users (username, account_type) VALUES
 (
-'user5', 'Jared'
+'user5', 'Visitor'
 )
 ```
 
@@ -139,69 +169,57 @@ kubectl exec -it $(kubectl get pod -l app=debezium -o jsonpath='{.items[0].metad
 
 # Create Clickhouse table
 ```bash
-kubectl exec -it $(kubectl get pod -l app=clickhouse -o jsonpath='{.items[0].metadata.name}') -- \
-  clickhouse-client --query "CREATE TABLE users (
-    user_id SERIAL PRIMARY KEY,
-    username String,
-    account_type String,
-    updated_at DateTime,
-    created_at DateTime,
-    kafka_time Nullable(DateTime),
-    kafka_offset UInt64
-) ENGINE = MergeTree() ORDER BY user_id, updated_at"
+# Connect to Clickhouse
+kubectl exec -it $(kubectl get pod -l app=clickhouse -o jsonpath='{.items[0].metadata.name}') bash 
+
+# or you can do port forward to the clickhouse pod so you can connect to it locally using clickhouse-client, DbVisualizer etc.
+kubectl port-forward svc/clickhouse 8123:8123
 ```
 # Helper queries to create the clickhouse mv, tables
 ```sql
-CREATE DATABASE shop;
-CREATE TABLE shop.users
-(    
-  user_id UInt32,    
-  username String,    
-  account_type String,    
-  updated_at DateTime,    
-  created_at DateTime,    
-  kafka_time Nullable(DateTime),
-  kafka_offset UInt64
-  )
-  ENGINE = ReplacingMergeTree
-  ORDER BY (user_id, updated_at)
-  SETTINGS index_granularity = 8192;
-  
-  CREATE TABLE shop.kafka__users
-  (    
-    user_id UInt32,    
-    username String,    
-    account_type String,    
-    updated_at UInt64,    
-    created_at UInt64
-  )
-  ENGINE = Kafka
-  SETTINGS kafka_broker_list = 'kafka-broker:29092',
-  kafka_topic_list = 'shop.public.users',
-  kafka_group_name = 'clickhouse',
-  kafka_format = 'JSONEachRow', --??
-  kafka_row_delimiter = '\n',
-  kafka_schema = '{"type":"struct","fields":[{"field":"user_id","type":"int32"},{"field":"username","type":"string"},{"field":"account_type","type":"string"},{"field":"updated_at","type":"int64"},{"field":"created_at","type":"int64"}]}'
+DROP DATABASE IF NOT EXISTS shop_db
 
-  CREATE MATERIALIZED VIEW kafka_shop_db.consumer__users TO shop.users
+CREATE DATABASE IF NOT EXISTS shop_db;
+
+-- Create the target table
+CREATE TABLE IF NOT EXISTS shop_db.users
 (
     user_id UInt32,
     username String,
     account_type String,
-    updated_at DateTime,
-    created_at DateTime,
-    kafka_time Nullable(DateTime),
-    kafka_offset UInt64
-) AS
-SELECT
-    user_id,
-    username,
-    account_type,
-    toDateTime(updated_at / 1000000) AS updated_at,
-    toDateTime(created_at / 1000000) AS created_at,
-    _timestamp AS kafka_time,
-    _offset AS kafka_offset
-FROM kafka_shop_db.kafka__users;
+    updated_at DateTime64(6),
+    created_at DateTime64(6),
+    is_deleted UInt8,
+    _version UInt64
+) ENGINE = ReplacingMergeTree(_version)
+ORDER BY (user_id);
+
+-- Create the Kafka source table
+CREATE TABLE IF NOT EXISTS shop_db.users_kafka
+(
+    payload Tuple(
+        user_id UInt32,
+        username String,
+        account_type String,
+        updated_at Int64,
+        created_at Int64,
+        __deleted String
+    )
+) ENGINE = Kafka('kafka-broker:29092', 'shop_db.public.users', 'clickhouse_consumer_group', 'JSONEachRow');
+
+-- Create materialized view
+CREATE MATERIALIZED VIEW IF NOT EXISTS shop_db.users_mv
+TO shop_db.users
+AS SELECT
+    payload.1 as user_id,
+    payload.2 as username,
+    payload.3 as account_type,
+    fromUnixTimestamp64Micro(payload.4) as updated_at,
+    fromUnixTimestamp64Micro(payload.5) as created_at,
+    payload.6 = 'true' as is_deleted,
+    toUInt64(payload.4) as _version
+FROM shop_db.users_kafka
+WHERE length(_raw_message) > 0;
 
 ```
 
