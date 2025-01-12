@@ -18,18 +18,19 @@ This project sets up a Change Data Capture (CDC) pipeline using Debezium, Kafka,
 - Access to container registries
 
 ## Directory Structure
-├── k8s/
-│ ├── zookeeper.yaml
-│ ├── kafka.yaml
-│ ├── schema-registry.yaml
-│ ├── postgres.yaml
-│ ├── debezium.yaml
-│ ├── clickhouse.yaml
-│ ├── clickhouse-keeper.yaml
-│ ├── redpanda-console.yaml
-│ ├── postgres-source-connector.yaml
-│ └── create-connector-job.yaml
-└── README.md
+
+├── k8s/ <br>
+│ ├── zookeeper.yaml <br>
+│ ├── kafka.yaml <br>
+│ ├── schema-registry.yaml <br>
+│ ├── postgres.yaml <br>
+│ ├── debezium.yaml <br>
+│ ├── clickhouse.yaml <br>
+│ ├── clickhouse-keeper.yaml <br>
+│ ├── redpanda-console.yaml <br>
+│ ├── postgres-source-connector.yaml <br>
+│ └── create-connector-job.yaml <br>
+└── README.md <br>
 - k8s/ - Kubernetes manifests
 - postgres-source-connector.yaml - Debezium PostgreSQL source connector configuration
 - clickhouse-target-connector.yaml - Debezium ClickHouse target connector configuration
